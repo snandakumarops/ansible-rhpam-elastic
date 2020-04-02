@@ -1,102 +1,133 @@
 ---
-# deploy rhamt web console on OpenShift
-- debug:
-    msg:
-      - Openshift project
-      - -> Check if {{ OCP_PROJECT }} project exists
 
-- name: check if {{ OCP_PROJECT }} project exists
-  shell: "oc get project {{ OCP_PROJECT }}"
-  register: ocp_project_result
-  ignore_errors: true
-  changed_when: false
+- name: Copy the files used in this role
+  synchronize:
+    src: "files/"
+    dest: "/tmp/{{OCP_PROJECT}}/"
+    rsync_opts:
+      - "--no-motd"
+      - "--exclude=.git,*.qcow2"
+    use_ssh_args: true
 
-- debug:
-    msg:
-      - Openshift project
-      - -> Create Openshift project ({{ OCP_PROJECT }})
+- name: define ELASTIC_PROJ
+  set_fact:
+    ELASTIC_PROJ: elastic-{{OCP_PROJECT}}
 
-- name: create {{ OCP_PROJECT }} project
+    # Templates come from here: https://raw.githubusercontent.com/jorgemoralespou/ose-sample-apps-layouts
+
+- name: "Elastic CRDs"
+  shell: "/usr/local/bin/oc apply -f https://download.elastic.co/downloads/eck/1.0.0/all-in-one.yaml"
+- name: "Project for elastic"
+  shell: /usr/local/bin/oc new-project {{ ELASTIC_PROJ }}
+- name: "Elastic deploy"
+  k8s:
+    state: present
+    src: /tmp/{{OCP_PROJECT}}/elastic_deploy.yaml
+    namespace: "{{ ELASTIC_PROJ }}"
+
+- name: "Kibana deploy"
+  k8s:
+    state: present
+    src: /tmp/{{OCP_PROJECT}}/deploy_kibana.yaml
+    namespace: "{{ ELASTIC_PROJ }}"
+
+
+
+- name: Create project for rhpam7 offer management
   shell: |
-         oc new-project {{ OCP_PROJECT }} \
-            --display-name="RHPAM 7" \
-            --description="Red Hat Process Automation Manager 7"
-  when: ocp_project_result is failed
-
-- debug:
-    msg:  -> Process RHPAM Template
-
-- name: Check Secrets Business Central
-  shell: "oc get secret/businesscentral-app-secret -n {{ OCP_PROJECT }}"
-  register: bc_secret_result
+         /usr/local/bin/oc new-project {{ OCP_PROJECT }} \
+         --display-name="RHPAM7 Offer Management" \
+         --description="Red Hat Process Automation Manager 7 Offer Management Demo"
   ignore_errors: true
-  changed_when: false
+
+
+- name: Import PAM template
+  shell: "/usr/local/bin/oc create -f {{pam_template_yml}} -n {{ OCP_PROJECT }}"
+
+
+- name: Register rhpam_is_exists_result
+  shell: /usr/local/bin/oc get is/rhpam-businesscentral-rhel8 -n openshift
+  register: rhpam_is_exists_result
+  ignore_errors: true
+
+- name: Import the RHPAM ImageStreams into the cluster.
+  shell: "/usr/local/bin/oc create -f {{pam_imagestreams_yml}} -n openshift"
+  when: rhpam_is_exists_result is failed
+  ignore_errors: true
+
+- name: Check if RHPAM ImageStream tags are available
+  shell: "/usr/local/bin/oc get is -n openshift | grep -i rhpam | grep -i {{pam_imagestreams_tag}}"
+  register: result
+  until: result.stdout != ""
+  retries: 5
+  delay: 10
+
+
 
 - name: Create Secrets Business Central
-  shell: oc process -f {{ PAM_SECRETS_TEMPLATE_YML }} -p SECRET_NAME=businesscentral-app-secret | oc create -f - -n {{ OCP_PROJECT }}
-  when: bc_secret_result is failed
-
-
-- name: Check Secrets KIE-Server
-  shell: "oc get secret/kieserver-app-secret -n {{ OCP_PROJECT }}"
-  register: ks_secret_result
-  ignore_errors: true
-  changed_when: false
+  shell: /usr/local/bin/oc process -f {{pam_secrets_template_yml}} -p SECRET_NAME=businesscentral-app-secret | /usr/local/bin/oc create -f - -n {{ OCP_PROJECT }}
 
 - name: Create Secrets KIE-server
-  shell: oc process -f {{ PAM_SECRETS_TEMPLATE_YML }} -p SECRET_NAME=kieserver-app-secret | oc create -f - -n {{ OCP_PROJECT }}
-  when: ks_secret_result is failed
-
-- name: Check Service Account Business Central
-  shell: "oc get serviceaccount/businesscentral-service-account -n {{ OCP_PROJECT }}"
-  register: bc_sa_result
-  ignore_errors: true
-  changed_when: false
+  shell: /usr/local/bin/oc process -f {{pam_secrets_template_yml}} -p SECRET_NAME=kieserver-app-secret | /usr/local/bin/oc create -f - -n {{ OCP_PROJECT }}
 
 - name: Create Service Account Business Central
-  shell: oc create serviceaccount businesscentral-service-account -n {{ OCP_PROJECT }}
-  when: bc_sa_result is failed
-
-- name: Check Service Account KIE_Server
-  shell: "oc get serviceaccount/kieserver-service-account -n {{ OCP_PROJECT }}"
-  register: ks_sa_result
-  ignore_errors: true
-  changed_when: false
+  shell: /usr/local/bin/oc create serviceaccount businesscentral-service-account -n {{ OCP_PROJECT }}
 
 - name: Create Service Account KIE Server
-  shell: oc create serviceaccount kieserver-service-account -n {{ OCP_PROJECT }}
-  when: ks_sa_result is failed
+  shell: /usr/local/bin/oc create serviceaccount kieserver-service-account -n {{ OCP_PROJECT }}
 
 - name: Link secrets and service account Business Central
-  shell: oc secrets link --for=mount businesscentral-service-account businesscentral-app-secret -n {{ OCP_PROJECT }}
+  shell: /usr/local/bin/oc secrets link --for=mount businesscentral-service-account businesscentral-app-secret -n {{ OCP_PROJECT }}
 
 - name: Link secrets and service account KIE-server
-  shell: oc secrets link --for=mount kieserver-service-account kieserver-app-secret -n {{ OCP_PROJECT }}
+  shell: /usr/local/bin/oc secrets link --for=mount kieserver-service-account kieserver-app-secret -n {{ OCP_PROJECT }}
 
-- name: check if RHPAM exists
-  shell: "oc get dc/rhpam7-rhpamcentr -n {{ OCP_PROJECT }}"
-  register: rhpam_result
-  ignore_errors: true
-  changed_when: false
-
-- name: Set base param fact
-  set_fact:
-    TEMPLATE_PARAMS: -p APPLICATION_NAME="rhpam7" -p KIE_ADMIN_USER="pamAdmin" -p KIE_SERVER_CONTROLLER_USER="controllerUser" -p KIE_SERVER_USER="executionUser" -p BUSINESS_CENTRAL_MAVEN_USERNAME="mavenUser" -p BUSINESS_CENTRAL_MEMORY_LIMIT="2Gi"
-
-- name: Set additional facts for non-trial environment
-  set_fact:
-    TEMPLATE_PARAMS: "{{ TEMPLATE_PARAMS }} -p KIE_ADMIN_PWD='redhatpam1' -p KIE_SERVER_CONTROLLER_PWD='test1234!' -p KIE_SERVER_PWD='test1234!' -p BUSINESS_CENTRAL_MAVEN_PASSWORD='test1234!' -p BUSINESS_CENTRAL_HTTPS_SECRET='businesscentral-app-secret' -p KIE_SERVER_HTTPS_SECRET='kieserver-app-secret'"
-  when: RHPAM_ENVIRONMENT != "trial-ephemeral"
-
-- name: Create PAM7 environment
+- name: Create PAM7 Authoring environment 2
   shell: |
-          oc new-app --template=rhpam{{ RHPAM_VERSION_ID }}-{{ RHPAM_ENVIRONMENT }} \
-          {{ TEMPLATE_PARAMS }} \
-          -p IMAGE_STREAM_NAMESPACE={{ IMAGE_STREAM_NAMESPACE }} -n {{ OCP_PROJECT }}
-  when: rhpam_result is failed
+         /usr/local/bin/oc new-app --template=rhpam75-trial-ephemeral \
+           --name={{pam_app_name}} \
+           -p APPLICATION_NAME={{pam_app_name}} \
+           -p IMAGE_STREAM_NAMESPACE=openshift \
+           -p KIE_ADMIN_USER={{ kie_admin_user }} \
+           -p KIE_SERVER_USER={{ kie_server_user }} \
+           -p KIE_SERVER_CONTROLLER_USER="{{ kie_server_controller_user }}" \
+           -p BUSINESS_CENTRAL_MEMORY_LIMIT="2Gi" \
+           -p KIE_SERVER_MEMORY_LIMIT="2Gi" \
+           -e JAVA_OPTS_APPEND="-Dorg.jbpm.document.storage=/opt/eap/standalone/data/documents"
+
+- name: Configure Liveness probe
+  shell: "/usr/local/bin/oc set probe dc/{{pam_app_name}}-rhpamcentr --liveness --initial-delay-seconds=360 -n {{ OCP_PROJECT }}"
+
+- name: Configure Readiness probe
+  shell: "/usr/local/bin/oc set probe dc/{{pam_app_name}}-rhpamcentr --readiness --initial-delay-seconds=90 -n {{ OCP_PROJECT }}"
+
+- name: Set KIE_ADMIN Password Business Central
+  shell: "/usr/local/bin/oc set env dc/{{pam_app_name}}-rhpamcentr KIE_ADMIN_PWD=redhatpam1! -n {{ OCP_PROJECT }}"
+
+- name: Set KIE_ADMIN Password KIE-Server
+  shell: "/usr/local/bin/oc set env dc/{{pam_app_name}}-kieserver KIE_ADMIN_PWD=redhatpam1! -n {{ OCP_PROJECT }}"
 
 - name: Disable OpenShiftStartupStrategy
-  shell: "oc set env dc/rhpam7-rhpamcentr KIE_WORKBENCH_CONTROLLER_OPENSHIFT_ENABLED=false KIE_SERVER_CONTROLLER_PWD=test1234! -n {{ OCP_PROJECT }}"
+  shell: "/usr/local/bin/oc set env dc/{{pam_app_name}}-rhpamcentr KIE_WORKBENCH_CONTROLLER_OPENSHIFT_ENABLED=false KIE_SERVER_CONTROLLER_PWD=test1234! -n {{ OCP_PROJECT }}"
 
 - name: Configure KIE-Server
-  shell: "oc set env dc/rhpam7-kieserver KIE_SERVER_STARTUP_STRATEGY=ControllerBasedStartupStrategy KIE_SERVER_CONTROLLER_USER=controllerUser KIE_SERVER_CONTROLLER_PWD=test1234! KIE_SERVER_CONTROLLER_SERVICE=rhpam7-rhpamcentr KIE_SERVER_CONTROLLER_PROTOCOL=ws KIE_SERVER_ROUTE_NAME=insecure-rhpam7-kieserver -n {{ OCP_PROJECT }}"
+  shell: "/usr/local/bin/oc set env dc/{{pam_app_name}}-kieserver KIE_SERVER_STARTUP_STRATEGY=ControllerBasedStartupStrategy KIE_SERVER_CONTROLLER_USER=controllerUser KIE_SERVER_CONTROLLER_PWD=test1234! KIE_SERVER_CONTROLLER_SERVICE=rhpam7-rhpamcentr KIE_SERVER_CONTROLLER_PROTOCOL=ws KIE_SERVER_ROUTE_NAME=insecure-{{pam_app_name}}-kieserver -n {{ OCP_PROJECT }}"
+
+- name: Running RHPAM DMN PMML build.
+  import_tasks: ./rhpam_openshift_dmn_pmml_workload.yml
+
+- name: "Get KIE-Server Route"
+  shell: "/usr/local/bin/oc get route insecure-{{pam_app_name}}-kieserver | awk 'FNR > 1 {print $2}'"
+  register: oc_get_route_output
+
+- name: "Set KIE Server Route fact"
+  set_fact:
+    kie_server_route: "{{ oc_get_route_output.stdout }}"
+
+- name: "Get ocP Domain Suffix"
+  shell: "/usr/local/bin/oc get route insecure-{{pam_app_name}}-kieserver | awk 'FNR > 1 {print $2}'| cut -d\".\" -f2-"
+  register: oc_get_domain_suffix_output
+
+- name: "ocP Domain Suffix fact"
+  set_fact:
+    ocp_domain_suffix: "{{ oc_get_domain_suffix_output.stdout }}"
