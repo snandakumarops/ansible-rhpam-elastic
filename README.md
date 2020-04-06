@@ -9,8 +9,8 @@ Test locally
 If you want to test this role locally:
 
 ```
-ansible-playbook -i tests/inventory tests/role_provision.yml \
-        -e OCP_PROJECT=rhamt -e "ansible_python_interpreter=/usr/local/bin/python2"
+ansible-playbook -i tests/inventory role_provision.yml \
+        -e OCP_PROJECT=rhpamelastic -e "ansible_python_interpreter=/usr/local/bin/python2"
 ```
 
 

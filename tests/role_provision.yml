@@ -2,4 +2,4 @@
 - hosts: localhost
   connection: local
   roles:
-    - ../../ansible-openshift-rhpam
+    - ../../ansible-rhpam-elastic

@@ -16,9 +16,9 @@
     # Templates come from here: https://raw.githubusercontent.com/jorgemoralespou/ose-sample-apps-layouts
 
 - name: "Elastic CRDs"
-  shell: "/usr/local/bin/oc apply -f https://download.elastic.co/downloads/eck/1.0.0/all-in-one.yaml"
+  shell: "oc apply -f https://download.elastic.co/downloads/eck/1.0.0/all-in-one.yaml"
 - name: "Project for elastic"
-  shell: /usr/local/bin/oc new-project {{ ELASTIC_PROJ }}
+  shell: oc new-project {{ ELASTIC_PROJ }}
 - name: "Elastic deploy"
   k8s:
     state: present
@@ -35,28 +35,28 @@
 
 - name: Create project for rhpam7 offer management
   shell: |
-         /usr/local/bin/oc new-project {{ OCP_PROJECT }} \
+         oc new-project {{ OCP_PROJECT }} \
          --display-name="RHPAM7 Offer Management" \
          --description="Red Hat Process Automation Manager 7 Offer Management Demo"
   ignore_errors: true
 
 
 - name: Import PAM template
-  shell: "/usr/local/bin/oc create -f {{pam_template_yml}} -n {{ OCP_PROJECT }}"
+  shell: "oc create -f {{pam_template_yml}} -n {{ OCP_PROJECT }}"
 
 
 - name: Register rhpam_is_exists_result
-  shell: /usr/local/bin/oc get is/rhpam-businesscentral-rhel8 -n openshift
+  shell: oc get is/rhpam-businesscentral-rhel8 -n openshift
   register: rhpam_is_exists_result
   ignore_errors: true
 
 - name: Import the RHPAM ImageStreams into the cluster.
-  shell: "/usr/local/bin/oc create -f {{pam_imagestreams_yml}} -n openshift"
+  shell: "oc create -f {{pam_imagestreams_yml}} -n openshift"
   when: rhpam_is_exists_result is failed
   ignore_errors: true
 
 - name: Check if RHPAM ImageStream tags are available
-  shell: "/usr/local/bin/oc get is -n openshift | grep -i rhpam | grep -i {{pam_imagestreams_tag}}"
+  shell: "oc get is -n openshift | grep -i rhpam | grep -i {{pam_imagestreams_tag}}"
   register: result
   until: result.stdout != ""
   retries: 5
@@ -65,26 +65,26 @@
 
 
 - name: Create Secrets Business Central
-  shell: /usr/local/bin/oc process -f {{pam_secrets_template_yml}} -p SECRET_NAME=businesscentral-app-secret | /usr/local/bin/oc create -f - -n {{ OCP_PROJECT }}
+  shell: oc process -f {{pam_secrets_template_yml}} -p SECRET_NAME=businesscentral-app-secret | oc create -f - -n {{ OCP_PROJECT }}
 
 - name: Create Secrets KIE-server
-  shell: /usr/local/bin/oc process -f {{pam_secrets_template_yml}} -p SECRET_NAME=kieserver-app-secret | /usr/local/bin/oc create -f - -n {{ OCP_PROJECT }}
+  shell: oc process -f {{pam_secrets_template_yml}} -p SECRET_NAME=kieserver-app-secret | oc create -f - -n {{ OCP_PROJECT }}
 
 - name: Create Service Account Business Central
-  shell: /usr/local/bin/oc create serviceaccount businesscentral-service-account -n {{ OCP_PROJECT }}
+  shell: oc create serviceaccount businesscentral-service-account -n {{ OCP_PROJECT }}
 
 - name: Create Service Account KIE Server
-  shell: /usr/local/bin/oc create serviceaccount kieserver-service-account -n {{ OCP_PROJECT }}
+  shell: oc create serviceaccount kieserver-service-account -n {{ OCP_PROJECT }}
 
 - name: Link secrets and service account Business Central
-  shell: /usr/local/bin/oc secrets link --for=mount businesscentral-service-account businesscentral-app-secret -n {{ OCP_PROJECT }}
+  shell: oc secrets link --for=mount businesscentral-service-account businesscentral-app-secret -n {{ OCP_PROJECT }}
 
 - name: Link secrets and service account KIE-server
-  shell: /usr/local/bin/oc secrets link --for=mount kieserver-service-account kieserver-app-secret -n {{ OCP_PROJECT }}
+  shell: oc secrets link --for=mount kieserver-service-account kieserver-app-secret -n {{ OCP_PROJECT }}
 
 - name: Create PAM7 Authoring environment 2
   shell: |
-         /usr/local/bin/oc new-app --template=rhpam75-trial-ephemeral \
+         oc new-app --template=rhpam75-trial-ephemeral \
            --name={{pam_app_name}} \
            -p APPLICATION_NAME={{pam_app_name}} \
            -p IMAGE_STREAM_NAMESPACE=openshift \
@@ -96,28 +96,28 @@
            -e JAVA_OPTS_APPEND="-Dorg.jbpm.document.storage=/opt/eap/standalone/data/documents"
 
 - name: Configure Liveness probe
-  shell: "/usr/local/bin/oc set probe dc/{{pam_app_name}}-rhpamcentr --liveness --initial-delay-seconds=360 -n {{ OCP_PROJECT }}"
+  shell: "oc set probe dc/{{pam_app_name}}-rhpamcentr --liveness --initial-delay-seconds=360 -n {{ OCP_PROJECT }}"
 
 - name: Configure Readiness probe
-  shell: "/usr/local/bin/oc set probe dc/{{pam_app_name}}-rhpamcentr --readiness --initial-delay-seconds=90 -n {{ OCP_PROJECT }}"
+  shell: "oc set probe dc/{{pam_app_name}}-rhpamcentr --readiness --initial-delay-seconds=90 -n {{ OCP_PROJECT }}"
 
 - name: Set KIE_ADMIN Password Business Central
-  shell: "/usr/local/bin/oc set env dc/{{pam_app_name}}-rhpamcentr KIE_ADMIN_PWD=redhatpam1! -n {{ OCP_PROJECT }}"
+  shell: "oc set env dc/{{pam_app_name}}-rhpamcentr KIE_ADMIN_PWD=redhatpam1! -n {{ OCP_PROJECT }}"
 
 - name: Set KIE_ADMIN Password KIE-Server
-  shell: "/usr/local/bin/oc set env dc/{{pam_app_name}}-kieserver KIE_ADMIN_PWD=redhatpam1! -n {{ OCP_PROJECT }}"
+  shell: "oc set env dc/{{pam_app_name}}-kieserver KIE_ADMIN_PWD=redhatpam1! -n {{ OCP_PROJECT }}"
 
 - name: Disable OpenShiftStartupStrategy
-  shell: "/usr/local/bin/oc set env dc/{{pam_app_name}}-rhpamcentr KIE_WORKBENCH_CONTROLLER_OPENSHIFT_ENABLED=false KIE_SERVER_CONTROLLER_PWD=test1234! -n {{ OCP_PROJECT }}"
+  shell: "oc set env dc/{{pam_app_name}}-rhpamcentr KIE_WORKBENCH_CONTROLLER_OPENSHIFT_ENABLED=false KIE_SERVER_CONTROLLER_PWD=test1234! -n {{ OCP_PROJECT }}"
 
 - name: Configure KIE-Server
-  shell: "/usr/local/bin/oc set env dc/{{pam_app_name}}-kieserver KIE_SERVER_STARTUP_STRATEGY=ControllerBasedStartupStrategy KIE_SERVER_CONTROLLER_USER=controllerUser KIE_SERVER_CONTROLLER_PWD=test1234! KIE_SERVER_CONTROLLER_SERVICE=rhpam7-rhpamcentr KIE_SERVER_CONTROLLER_PROTOCOL=ws KIE_SERVER_ROUTE_NAME=insecure-{{pam_app_name}}-kieserver -n {{ OCP_PROJECT }}"
+  shell: "oc set env dc/{{pam_app_name}}-kieserver KIE_SERVER_STARTUP_STRATEGY=ControllerBasedStartupStrategy KIE_SERVER_CONTROLLER_USER=controllerUser KIE_SERVER_CONTROLLER_PWD=test1234! KIE_SERVER_CONTROLLER_SERVICE=rhpam7-rhpamcentr KIE_SERVER_CONTROLLER_PROTOCOL=ws KIE_SERVER_ROUTE_NAME=insecure-{{pam_app_name}}-kieserver -n {{ OCP_PROJECT }}"
 
-- name: Running RHPAM DMN PMML build.
-  import_tasks: ./rhpam_openshift_dmn_pmml_workload.yml
+- name: Running RHPAM build.
+  import_tasks: ./rhpam_openshift.yml
 
 - name: "Get KIE-Server Route"
-  shell: "/usr/local/bin/oc get route insecure-{{pam_app_name}}-kieserver | awk 'FNR > 1 {print $2}'"
+  shell: "oc get route insecure-{{pam_app_name}}-kieserver | awk 'FNR > 1 {print $2}'"
   register: oc_get_route_output
 
 - name: "Set KIE Server Route fact"
@@ -125,7 +125,7 @@
     kie_server_route: "{{ oc_get_route_output.stdout }}"
 
 - name: "Get ocP Domain Suffix"
-  shell: "/usr/local/bin/oc get route insecure-{{pam_app_name}}-kieserver | awk 'FNR > 1 {print $2}'| cut -d\".\" -f2-"
+  shell: "oc get route insecure-{{pam_app_name}}-kieserver | awk 'FNR > 1 {print $2}'| cut -d\".\" -f2-"
   register: oc_get_domain_suffix_output
 
 - name: "ocP Domain Suffix fact"
